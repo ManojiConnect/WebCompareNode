@@ -1,0 +1,10 @@
+{
+  "ignore": [
+    "uploads/screenshots/*",
+    "uploads/screenshots/**/*"
+  ],
+  "watch": [
+    "src/"
+  ],
+  "ext": "js,json"
+} 

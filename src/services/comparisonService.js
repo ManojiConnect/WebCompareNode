@@ -1,19 +1,21 @@
 const puppeteer = require('puppeteer');
-const fs = require('fs').promises;
+const fs = require('fs');
+const fsPromises = require('fs').promises;
 const path = require('path');
 const pixelmatch = require('pixelmatch');
 const { PNG } = require('pngjs');
 const diffLib = require('diff');
 const https = require('https');
 const http = require('http');
+const { spawn, spawnSync } = require('child_process');
 
 const SCREENSHOTS_DIR = path.join(__dirname, '../../uploads/screenshots');
 
 async function clearOldFiles() {
     try {
-        const files = await fs.readdir(SCREENSHOTS_DIR);
+        const files = await fsPromises.readdir(SCREENSHOTS_DIR);
         await Promise.all(files.map(file => 
-            fs.unlink(path.join(SCREENSHOTS_DIR, file))
+            fsPromises.unlink(path.join(SCREENSHOTS_DIR, file))
         ));
     } catch (error) {
         console.error('Error clearing old files:', error);
@@ -173,21 +175,53 @@ async function compareResources(originalResources, upgradedResources) {
             }
         }
 
-        // Compare images
-        const originalImageUrls = new Set(originalResources.images.map(img => img.url));
-        const upgradedImageUrls = new Set(upgradedResources.images.map(img => img.url));
-
-        // Find added and removed images
-        for (const url of upgradedImageUrls) {
-            if (!originalImageUrls.has(url)) {
+        // Extract path after domain for image comparison
+        function getImagePath(url) {
+            try {
+                const urlObj = new URL(url);
+                return urlObj.pathname;
+            } catch (e) {
+                return url; // If not a valid URL, return as is
+            }
+        }
+        
+        // Create maps of image paths to full URLs
+        const originalImagePathMap = new Map();
+        const upgradedImagePathMap = new Map();
+        
+        // Process original images
+        originalResources.images.forEach(img => {
+            const path = getImagePath(img.url);
+            originalImagePathMap.set(path, img.url);
+            console.log(`Original image: ${img.url} -> Path: ${path}`);
+        });
+        
+        // Process upgraded images
+        upgradedResources.images.forEach(img => {
+            const path = getImagePath(img.url);
+            upgradedImagePathMap.set(path, img.url);
+            console.log(`Upgraded image: ${img.url} -> Path: ${path}`);
+        });
+        
+        console.log(`Found ${originalImagePathMap.size} original images and ${upgradedImagePathMap.size} upgraded images`);
+        
+        // Find added images (in upgraded but not in original)
+        for (const [path, url] of upgradedImagePathMap.entries()) {
+            if (!originalImagePathMap.has(path)) {
+                console.log(`Added image: ${url} (Path: ${path})`);
                 differences.images.added.push(url);
             }
         }
-        for (const url of originalImageUrls) {
-            if (!upgradedImageUrls.has(url)) {
+        
+        // Find removed images (in original but not in upgraded)
+        for (const [path, url] of originalImagePathMap.entries()) {
+            if (!upgradedImagePathMap.has(path)) {
+                console.log(`Removed image: ${url} (Path: ${path})`);
                 differences.images.removed.push(url);
             }
         }
+        
+        console.log(`Found ${differences.images.added.length} added images and ${differences.images.removed.length} removed images`);
 
         console.log('Resource comparison completed');
         return differences;
@@ -206,54 +240,103 @@ async function compareResources(originalResources, upgradedResources) {
 
 async function takeScreenshot(url, filename) {
     let browser;
+    let page;
     try {
         console.log(`Taking screenshot of ${url}`);
-        try {
             browser = await puppeteer.launch({
                 headless: 'new',
-                args: ['--no-sandbox', '--disable-setuid-sandbox'],
-                executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                '--disable-web-security',
+                    '--disable-gpu',
+                '--disable-software-rasterizer',
+                '--disable-extensions',
+                '--disable-features=IsolateOrigins,site-per-process',
+                '--disable-site-isolation-trials'
+                ],
+            executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+            timeout: 60000 // Increase browser launch timeout
             });
-        } catch (launchError) {
-            console.error('Failed to launch browser:', launchError);
-            throw new Error(`Failed to launch browser: ${launchError.message}`);
-        }
 
-        const page = await browser.newPage();
+        page = await browser.newPage();
         
-        // Set a fixed viewport size
+        // Set a fixed viewport size with maximum dimensions
         await page.setViewport({ 
             width: 1920, 
             height: 1080,
             deviceScaleFactor: 1
         });
+
+        // Set longer timeouts
+        page.setDefaultNavigationTimeout(60000); // Increase to 60 seconds
+        page.setDefaultTimeout(60000);
+
+        // Enable request logging
+        page.on('request', request => {
+            console.log(`Request: ${request.method()} ${request.url()}`);
+        });
+
+        page.on('requestfailed', request => {
+            console.error(`Request failed: ${request.url()} - ${request.failure().errorText}`);
+        });
+
+        page.on('console', msg => {
+            console.log(`Page console: ${msg.text()}`);
+        });
         
         console.log(`Navigating to ${url}`);
         try {
-            // Set a timeout for page load
-            await page.goto(url, { 
-                waitUntil: 'networkidle0',
-                timeout: 30000 // 30 seconds timeout
+            // Try multiple navigation strategies
+            const response = await page.goto(url, { 
+                waitUntil: ['domcontentloaded', 'networkidle0'],
+                timeout: 60000
             });
+
+            if (!response) {
+                throw new Error('No response received from page');
+            }
+
+            console.log(`Page response status: ${response.status()} ${response.statusText()}`);
+
+            if (!response.ok()) {
+                throw new Error(`Page returned status code ${response.status()} (${response.statusText()})`);
+            }
 
             // Wait for any dynamic content to load
-            await page.waitForTimeout(2000);
+            await page.waitForTimeout(5000);
 
-            // Get the page dimensions
+            // Get the page dimensions with a maximum limit
             const dimensions = await page.evaluate(() => {
+                try {
                 return {
-                    width: Math.max(
-                        document.documentElement.clientWidth,
-                        document.body.scrollWidth,
-                        document.documentElement.scrollWidth
-                    ),
-                    height: Math.max(
-                        document.documentElement.clientHeight,
-                        document.body.scrollHeight,
-                        document.documentElement.scrollHeight
-                    )
-                };
+                        width: Math.min(
+                            Math.max(
+                                document.documentElement.clientWidth || 0,
+                                document.body.scrollWidth || 0,
+                                document.documentElement.scrollWidth || 0,
+                                1920
+                            ),
+                            5000
+                        ),
+                        height: Math.min(
+                            Math.max(
+                                document.documentElement.clientHeight || 0,
+                                document.body.scrollHeight || 0,
+                                document.documentElement.scrollHeight || 0,
+                                1080
+                            ),
+                            5000
+                        )
+                    };
+                } catch (error) {
+                    console.error('Error getting dimensions:', error);
+                    return { width: 1920, height: 1080 };
+                }
             });
+
+            console.log('Page dimensions:', dimensions);
 
             // Set viewport to match page dimensions
             await page.setViewport({
@@ -261,20 +344,15 @@ async function takeScreenshot(url, filename) {
                 height: dimensions.height,
                 deviceScaleFactor: 1
             });
-
-        } catch (navigationError) {
-            console.error(`Failed to navigate to ${url}:`, navigationError);
-            throw new Error(`Failed to load page: ${navigationError.message}`);
-        }
         
         console.log('Page loaded, analyzing resources...');
-        // Get HTML content and resources
         const html = await page.content();
         const resources = await analyzeResources(page);
         
         // Ensure screenshots directory exists
         try {
-            await fs.mkdir(SCREENSHOTS_DIR, { recursive: true });
+                await fsPromises.mkdir(SCREENSHOTS_DIR, { recursive: true });
+                console.log('Screenshots directory verified:', SCREENSHOTS_DIR);
         } catch (mkdirError) {
             console.error('Failed to create screenshots directory:', mkdirError);
             throw new Error(`Failed to create screenshots directory: ${mkdirError.message}`);
@@ -282,23 +360,44 @@ async function takeScreenshot(url, filename) {
         
         const screenshotPath = path.join(SCREENSHOTS_DIR, filename);
         console.log(`Taking screenshot and saving to ${screenshotPath}`);
-        try {
+            
             await page.screenshot({ 
                 path: screenshotPath,
                 fullPage: true,
-                omitBackground: true // This helps with consistent comparison
+                omitBackground: true
             });
-        } catch (screenshotError) {
-            console.error('Failed to take screenshot:', screenshotError);
-            throw new Error(`Failed to capture screenshot: ${screenshotError.message}`);
+
+            // Verify the screenshot was created
+            try {
+                const stats = await fsPromises.stat(screenshotPath);
+                console.log('Screenshot saved successfully:', {
+                    path: screenshotPath,
+                    size: stats.size,
+                    created: stats.birthtime
+                });
+            } catch (error) {
+                console.error('Failed to verify screenshot:', error);
+                throw new Error('Screenshot file not found after capture');
         }
 
         console.log('Screenshot completed successfully');
         return { screenshotPath, html, resources };
+        } catch (navigationError) {
+            console.error(`Failed to navigate to ${url}:`, navigationError);
+            throw new Error(`Failed to load page: ${navigationError.message}`);
+        }
     } catch (error) {
         console.error(`Error taking screenshot of ${url}:`, error);
         throw new Error(`Failed to process page: ${error.message}`);
     } finally {
+        if (page) {
+            try {
+                console.log('Closing page');
+                await page.close();
+            } catch (closeError) {
+                console.error('Error closing page:', closeError);
+            }
+        }
         if (browser) {
             try {
                 console.log('Closing browser');
@@ -310,118 +409,96 @@ async function takeScreenshot(url, filename) {
     }
 }
 
-async function comparePages(originalUrl, upgradedUrl) {
+async function processScreenshots(originalScreenshot, upgradedScreenshot) {
+    let processor = null;
+
     try {
-        console.log('Starting page comparison...');
-        if (!originalUrl || !upgradedUrl) {
-            throw new Error('Both URLs are required for comparison');
-        }
+        processor = spawn('node', [
+            path.join(__dirname, 'screenshotProcessor.js'),
+            originalScreenshot,
+            upgradedScreenshot
+        ]);
 
-        // Clear old files first
-        await clearOldFiles();
+        const result = await new Promise((resolve, reject) => {
+            let output = '';
+            let error = '';
 
-        // Take screenshots and get HTML content
-        console.log('Taking screenshot of original page...');
-        const { screenshotPath: originalScreenshot, html: originalHtml, resources: originalResources } = 
-            await takeScreenshot(originalUrl, 'original.png');
-        
-        console.log('Taking screenshot of upgraded page...');
-        const { screenshotPath: upgradedScreenshot, html: upgradedHtml, resources: upgradedResources } = 
-            await takeScreenshot(upgradedUrl, 'upgraded.png');
+            processor.stdout.on('data', (data) => {
+                output += data.toString();
+            });
 
-        console.log('Comparing HTML content...');
-        // Compare HTML
-        const htmlDiff = diffLib.createPatch(
-            'comparison',
-            originalHtml,
-            upgradedHtml,
-            'Original',
-            'Upgraded'
-        );
+            processor.stderr.on('data', (data) => {
+                const message = data.toString();
+                console.log('Processor:', message);
+                error += message;
+            });
 
-        console.log('Comparing resources...');
-        // Compare resources
-        const resourceDiffs = await compareResources(originalResources, upgradedResources);
+            processor.on('error', (err) => {
+                reject(new Error(`Failed to start processor: ${err.message}`));
+            });
 
-        console.log('Saving comparison results...');
-        // Save HTML diff to file
-        const htmlDiffPath = path.join(SCREENSHOTS_DIR, 'diff.html');
-        await fs.writeFile(htmlDiffPath, htmlDiff);
-
-        // Save resource diffs
-        const resourceDiffPath = path.join(SCREENSHOTS_DIR, 'resource-diffs.json');
-        await fs.writeFile(resourceDiffPath, JSON.stringify(resourceDiffs, null, 2));
-
-        console.log('Reading PNG files for visual comparison...');
-        // Read the PNG files
-        const img1 = PNG.sync.read(await fs.readFile(originalScreenshot));
-        const img2 = PNG.sync.read(await fs.readFile(upgradedScreenshot));
-        
-        // Ensure both images have the same dimensions
-        const width = Math.max(img1.width, img2.width);
-        const height = Math.max(img1.height, img2.height);
-
-        // Create new PNG instances with the same dimensions
-        const resizedImg1 = new PNG({ width, height });
-        const resizedImg2 = new PNG({ width, height });
-        const diffImage = new PNG({ width, height });
-
-        // Copy original images to resized canvases
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                const idx = (y * width + x) * 4;
-                if (x < img1.width && y < img1.height) {
-                    const origIdx = (y * img1.width + x) * 4;
-                    resizedImg1.data[idx] = img1.data[origIdx];
-                    resizedImg1.data[idx + 1] = img1.data[origIdx + 1];
-                    resizedImg1.data[idx + 2] = img1.data[origIdx + 2];
-                    resizedImg1.data[idx + 3] = img1.data[origIdx + 3];
+            processor.on('close', (code) => {
+                if (code === 0) {
+                    try {
+                        const result = JSON.parse(output.trim());
+                        resolve(result);
+                    } catch (e) {
+                        reject(new Error(`Failed to parse processor output: ${e.message}`));
+                    }
+                } else {
+                    reject(new Error(`Processor failed with code ${code}: ${error}`));
                 }
-                if (x < img2.width && y < img2.height) {
-                    const origIdx = (y * img2.width + x) * 4;
-                    resizedImg2.data[idx] = img2.data[origIdx];
-                    resizedImg2.data[idx + 1] = img2.data[origIdx + 1];
-                    resizedImg2.data[idx + 2] = img2.data[origIdx + 2];
-                    resizedImg2.data[idx + 3] = img2.data[origIdx + 3];
-                }
+            });
+        });
+
+        return result;
+    } catch (error) {
+        throw error;
+    } finally {
+        // Ensure the processor is killed
+        if (processor) {
+            try {
+                processor.kill();
+            } catch (error) {
+                console.error('Error killing processor:', error);
             }
         }
+    }
+}
 
-        console.log('Performing pixel comparison...');
-        // Compare images
-        const numDiffPixels = pixelmatch(
-            resizedImg1.data,
-            resizedImg2.data,
-            diffImage.data,
-            width,
-            height,
-            {
-                threshold: 0.1,
-                includeAA: true
-            }
-        );
+async function comparePages(originalUrl, upgradedUrl) {
+    let browser = null;
+    try {
+        // Take screenshots
+        const originalResult = await takeScreenshot(originalUrl, 'original.png');
+        const upgradedResult = await takeScreenshot(upgradedUrl, 'upgraded.png');
 
-        // Calculate difference percentage
-        const totalPixels = width * height;
-        const diffPercentage = (numDiffPixels / totalPixels) * 100;
+        if (!originalResult || !originalResult.screenshotPath || !upgradedResult || !upgradedResult.screenshotPath) {
+            throw new Error('Failed to capture screenshots');
+        }
 
-        console.log('Saving diff image...');
-        // Save the diff image
-        const diffPath = path.join(SCREENSHOTS_DIR, 'diff.png');
-        await fs.writeFile(diffPath, PNG.sync.write(diffImage));
-
-        console.log('Comparison completed successfully');
+        // Process screenshots in separate process
+        const comparisonResult = await processScreenshots(originalResult.screenshotPath, upgradedResult.screenshotPath);
+        
+        // Compare resources and get differences
+        const resourceDiffs = await compareResources(originalResult.resources, upgradedResult.resources);
+        
+        // Return the comparison result
         return {
-            misMatchPercentage: diffPercentage,
-            diffImageUrl: '/uploads/screenshots/diff.png',
-            originalImageUrl: '/uploads/screenshots/original.png',
-            upgradedImageUrl: '/uploads/screenshots/upgraded.png',
-            htmlDiffUrl: '/uploads/screenshots/diff.html',
-            resourceDiffsUrl: '/uploads/screenshots/resource-diffs.json'
+            ...comparisonResult,
+            html: {
+                original: originalResult.html,
+                upgraded: upgradedResult.html
+            },
+            resources: resourceDiffs
         };
     } catch (error) {
-        console.error('Error in comparison:', error);
-        throw new Error(`Comparison failed: ${error.message}`);
+        console.error('Error comparing pages:', error);
+        throw error;
+    } finally {
+        if (browser) {
+            await browser.close();
+        }
     }
 }
 

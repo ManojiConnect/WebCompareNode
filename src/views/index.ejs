@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Web Page Comparison Tool</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
@@ -31,7 +34,7 @@
             background-color: #ffeef0;
         }
         .resource-section {
-            margin-top: 2rem;
+            margin-top: 1.5rem;
             padding: 1rem;
             background: #f8f9fa;
             border-radius: 0.5rem;
@@ -46,88 +49,168 @@
         .resource-item:last-child {
             border-bottom: none;
         }
+        .comparison-image {
+            width: 100%;
+            height: auto;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.5rem;
+        }
+        .diff-preview {
+            max-height: 200px;
+            overflow: hidden;
+            position: relative;
+        }
+        .diff-preview.expanded {
+            max-height: none;
+        }
+        .view-more-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: linear-gradient(to bottom, rgba(248, 249, 250, 0), rgba(248, 249, 250, 1));
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding-bottom: 10px;
+        }
+        .btn-view-more {
+            background-color: #4f46e5;
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 0.25rem;
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+        .btn-view-more:hover {
+            background-color: #4338ca;
+        }
+        .btn-format {
+            background-color: #10b981;
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 0.25rem;
+            font-size: 0.875rem;
+            cursor: pointer;
+            margin-left: 0.5rem;
+        }
+        .btn-format:hover {
+            background-color: #059669;
+        }
+        .truncate-lines {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .formatted-code {
+            display: none;
+        }
+        .formatted-code.active {
+            display: block;
+        }
+        .raw-code.hidden {
+            display: none;
+        }
     </style>
-</head>
-<body class="bg-gray-100 min-h-screen">
-    <div class="container mx-auto px-4 py-8">
-        <h1 class="text-3xl font-bold text-center mb-8">Web Page Comparison Tool</h1>
-        
-        <div class="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-6">
-            <form id="compareForm" class="space-y-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">Original URL</label>
-                    <input type="url" name="originalUrl" required
-                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
-                </div>
+    <script>
+        // Force cache reload to ensure latest JavaScript is loaded
+        window.onload = function() {
+            // Check if cache has been cleared (using timestamp in localStorage)
+            const lastReload = localStorage.getItem('lastReload');
+            const now = new Date().getTime();
+            
+            // If it's been less than 5 seconds since the last reload, don't reload again
+            if (!lastReload || (now - lastReload > 5000)) {
+                localStorage.setItem('lastReload', now);
                 
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">Upgraded URL</label>
-                    <input type="url" name="upgradedUrl" required
-                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                // Add a timestamp parameter to force cache reload
+                const urlParams = new URLSearchParams(window.location.search);
+                if (!urlParams.has('cache_bust')) {
+                    window.location.href = window.location.href + 
+                        (window.location.search ? '&' : '?') + 
+                        'cache_bust=' + now;
+                }
+            }
+        };
+    </script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-2 py-4 max-w-full">
+        <h1 class="text-3xl font-bold text-center mb-6">Web Page Comparison Tool</h1>
+        
+        <div class="max-w-full mx-auto bg-white rounded-lg shadow-md p-4">
+            <form id="compareForm" class="space-y-4 max-w-4xl mx-auto">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Original URL</label>
+                        <input type="url" name="originalUrl" id="originalUrl" required
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Upgraded URL</label>
+                        <input type="url" name="upgradedUrl" id="upgradedUrl" required
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                    </div>
                 </div>
 
-                <button type="submit"
-                        class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-                    Compare Pages
-                </button>
+                <div class="flex justify-center">
+                    <button type="submit" id="submitButton"
+                            class="bg-blue-600 text-white py-2 px-6 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                        Compare Pages
+                    </button>
+                </div>
             </form>
 
-            <div class="loading mt-8 justify-center items-center">
+            <div id="loadingIndicator" class="loading mt-8 justify-center items-center">
                 <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                 <span class="ml-2">Comparing pages...</span>
             </div>
 
-            <div id="results" class="mt-8 hidden">
+            <div id="results" class="mt-6 hidden">
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="text-xl font-semibold">Comparison Results</h2>
-                    <button onclick="refreshComparison()" 
+                    <button id="refreshButton" type="button"
                             class="bg-gray-600 text-white py-2 px-4 rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
                         Refresh Comparison
                     </button>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                    <div>
-                        <h3 class="text-sm font-medium text-gray-700 mb-2">Original</h3>
-                        <img id="originalImage" class="w-full rounded-lg shadow" alt="Original page">
-                    </div>
-                    <div>
-                        <h3 class="text-sm font-medium text-gray-700 mb-2">Upgraded</h3>
-                        <img id="upgradedImage" class="w-full rounded-lg shadow" alt="Upgraded page">
-                    </div>
-                    <div>
-                        <h3 class="text-sm font-medium text-gray-700 mb-2">Differences</h3>
-                        <img id="diffImage" class="w-full rounded-lg shadow" alt="Difference highlight">
-                    </div>
+                <div id="imagesContainer" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <!-- Images will be inserted here dynamically -->
                 </div>
 
-                <div class="mt-4 text-center mb-8">
+                <div class="mt-4 text-center mb-6">
                     <p class="text-lg font-medium">
                         Visual Difference: <span id="diffPercentage" class="text-blue-600">0%</span>
                     </p>
                 </div>
 
-                <div class="mt-8">
-                    <h3 class="text-lg font-medium mb-4">HTML Differences</h3>
+                <div class="mt-6">
+                    <h3 class="text-lg font-medium mb-3">HTML Differences</h3>
                     <div id="htmlDiff" class="diff-content"></div>
                 </div>
 
-                <div id="resourceDiffs" class="mt-8">
-                    <h3 class="text-lg font-medium mb-4">Resource Differences</h3>
+                <div id="resourceDiffs" class="mt-6">
+                    <h3 class="text-lg font-medium mb-3">Resource Differences</h3>
                     
-                    <div class="resource-section">
-                        <h4 class="font-medium">CSS Files</h4>
-                        <div id="cssDiffs" class="resource-list"></div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="resource-section">
+                            <h4 class="font-medium">CSS Files</h4>
+                            <div id="cssDiffs" class="resource-list"></div>
+                        </div>
+
+                        <div class="resource-section">
+                            <h4 class="font-medium">JavaScript Files</h4>
+                            <div id="jsDiffs" class="resource-list"></div>
+                        </div>
                     </div>
 
-                    <div class="resource-section">
-                        <h4 class="font-medium">JavaScript Files</h4>
-                        <div id="jsDiffs" class="resource-list"></div>
-                    </div>
-
-                    <div class="resource-section">
+                    <div class="resource-section mt-4">
                         <h4 class="font-medium">Images</h4>
-                        <div class="grid grid-cols-2 gap-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <h5 class="text-sm font-medium text-green-600">Added Images</h5>
                                 <div id="addedImages" class="resource-list"></div>
@@ -140,129 +223,63 @@
                     </div>
                 </div>
             </div>
+            
+            <div id="errorMessage" class="mt-8 hidden">
+                <!-- Error messages will be inserted here dynamically -->
+            </div>
         </div>
     </div>
 
     <script>
-        async function refreshComparison() {
+        document.addEventListener('DOMContentLoaded', function() {
+            // Get DOM elements
             const form = document.getElementById('compareForm');
-            const loading = document.querySelector('.loading');
-            const results = document.getElementById('results');
+            const originalUrlInput = document.getElementById('originalUrl');
+            const upgradedUrlInput = document.getElementById('upgradedUrl');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const resultsContainer = document.getElementById('results');
+            const imagesContainer = document.getElementById('imagesContainer');
+            const diffPercentage = document.getElementById('diffPercentage');
+            const htmlDiff = document.getElementById('htmlDiff');
+            const errorMessageContainer = document.getElementById('errorMessage');
+            const refreshButton = document.getElementById('refreshButton');
             
-            loading.classList.add('active');
-            results.classList.add('hidden');
-            
-            try {
-                const response = await fetch('/compare', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        originalUrl: form.originalUrl.value,
-                        upgradedUrl: form.upgradedUrl.value
-                    })
+            // Function to toggle "View More" for diff content
+            function setupViewMoreButtons() {
+                document.querySelectorAll('.btn-view-more').forEach(button => {
+                    button.addEventListener('click', function() {
+                        const diffPreview = this.closest('.diff-preview');
+                        diffPreview.classList.toggle('expanded');
+                        this.textContent = diffPreview.classList.contains('expanded') ? 'View Less' : 'View More';
+                        
+                        // Hide/show the gradient overlay
+                        const overlay = diffPreview.querySelector('.view-more-overlay');
+                        if (diffPreview.classList.contains('expanded')) {
+                            overlay.style.display = 'none';
+                        } else {
+                            overlay.style.display = 'flex';
+                        }
+                    });
                 });
                 
-                const data = await response.json();
-                
-                if (response.ok) {
-                    // Add timestamp to URLs to prevent caching
-                    const timestamp = new Date().getTime();
-                    document.getElementById('originalImage').src = `${data.originalImageUrl}?t=${timestamp}`;
-                    document.getElementById('upgradedImage').src = `${data.upgradedImageUrl}?t=${timestamp}`;
-                    document.getElementById('diffImage').src = `${data.diffImageUrl}?t=${timestamp}`;
-                    document.getElementById('diffPercentage').textContent = 
-                        `${data.misMatchPercentage.toFixed(2)}%`;
-
-                    try {
-                        // Load and display HTML diff
-                        const htmlDiffResponse = await fetch(data.htmlDiffUrl);
-                        if (!htmlDiffResponse.ok) throw new Error('Failed to load HTML diff');
-                        const htmlDiff = await htmlDiffResponse.text();
-                        document.getElementById('htmlDiff').innerHTML = formatDiff(htmlDiff);
-                    } catch (error) {
-                        console.error('Error loading HTML diff:', error);
-                        document.getElementById('htmlDiff').innerHTML = 
-                            '<div class="text-red-600">Failed to load HTML differences</div>';
-                    }
-
-                    try {
-                        // Load and display resource diffs
-                        const resourceDiffsResponse = await fetch(data.resourceDiffsUrl);
-                        if (!resourceDiffsResponse.ok) throw new Error('Failed to load resource diffs');
-                        const resourceDiffs = await resourceDiffsResponse.json();
-                        displayResourceDiffs(resourceDiffs);
-                    } catch (error) {
-                        console.error('Error loading resource diffs:', error);
-                        document.getElementById('resourceDiffs').innerHTML = 
-                            '<div class="text-red-600">Failed to load resource differences</div>';
-                    }
-                    
-                    results.classList.remove('hidden');
-                } else {
-                    const errorMessage = data.error || 'Failed to compare pages';
-                    const errorDetails = data.details || '';
-                    showError(errorMessage, errorDetails);
-                }
-            } catch (error) {
-                console.error('Comparison error:', error);
-                showError('An error occurred while comparing pages. Please try again.', error.message);
-            } finally {
-                loading.classList.remove('active');
+                // Set up format buttons for minified code
+                document.querySelectorAll('.btn-format').forEach(button => {
+                    button.addEventListener('click', function() {
+                        const container = this.closest('.resource-item');
+                        const rawCode = container.querySelector('.raw-code');
+                        const formattedCode = container.querySelector('.formatted-code');
+                        
+                        rawCode.classList.toggle('hidden');
+                        formattedCode.classList.toggle('active');
+                        
+                        this.textContent = formattedCode.classList.contains('active') ? 'View Raw' : 'Format Code';
+                    });
+                });
             }
-        }
-
-        function formatDiff(diffText) {
-            return diffText.split('\n').map(line => {
-                if (line.startsWith('+')) {
-                    return `<div class="diff-line added">${line}</div>`;
-                } else if (line.startsWith('-')) {
-                    return `<div class="diff-line removed">${line}</div>`;
-                }
-                return `<div class="diff-line">${line}</div>`;
-            }).join('');
-        }
-
-        function displayResourceDiffs(diffs) {
-            // Display CSS diffs
-            const cssDiffsContainer = document.getElementById('cssDiffs');
-            cssDiffsContainer.innerHTML = diffs.css.map(css => `
-                <div class="resource-item">
-                    <div class="font-medium">${css.url}</div>
-                    <div class="diff-content mt-2">${formatDiff(css.diff)}</div>
-                </div>
-            `).join('') || '<div class="text-gray-500">No CSS differences found</div>';
-
-            // Display JavaScript diffs
-            const jsDiffsContainer = document.getElementById('jsDiffs');
-            jsDiffsContainer.innerHTML = diffs.javascript.map(js => `
-                <div class="resource-item">
-                    <div class="font-medium">${js.url}</div>
-                    <div class="diff-content mt-2">${formatDiff(js.diff)}</div>
-                </div>
-            `).join('') || '<div class="text-gray-500">No JavaScript differences found</div>';
-
-            // Display image differences
-            const addedImagesContainer = document.getElementById('addedImages');
-            addedImagesContainer.innerHTML = diffs.images.added.map(url => `
-                <div class="resource-item">
-                    <a href="${url}" target="_blank" class="text-blue-600 hover:underline">${url}</a>
-                </div>
-            `).join('') || '<div class="text-gray-500">No new images</div>';
-
-            const removedImagesContainer = document.getElementById('removedImages');
-            removedImagesContainer.innerHTML = diffs.images.removed.map(url => `
-                <div class="resource-item">
-                    <a href="${url}" target="_blank" class="text-blue-600 hover:underline">${url}</a>
-                </div>
-            `).join('') || '<div class="text-gray-500">No removed images</div>';
-        }
-
-        function showError(message, details = '') {
-            const results = document.getElementById('results');
-            results.classList.remove('hidden');
-            results.innerHTML = `
+            
+            // Show error message function
+            function showError(message, details = '') {
+                errorMessageContainer.innerHTML = `
                 <div class="bg-red-50 border-l-4 border-red-400 p-4 mb-4">
                     <div class="flex">
                         <div class="flex-shrink-0">
@@ -276,16 +293,268 @@
                         </div>
                     </div>
                 </div>
-                <button onclick="refreshComparison()" 
-                        class="bg-gray-600 text-white py-2 px-4 rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
+                    <button id="tryAgainButton" type="button" class="bg-gray-600 text-white py-2 px-4 rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
                     Try Again
                 </button>
             `;
-        }
-
-        document.getElementById('compareForm').addEventListener('submit', async (e) => {
+                
+                errorMessageContainer.classList.remove('hidden');
+                resultsContainer.classList.add('hidden');
+                
+                // Add event listener to the try again button
+                const tryAgainButton = document.getElementById('tryAgainButton');
+                if (tryAgainButton) {
+                    tryAgainButton.addEventListener('click', compareUrls);
+                }
+            }
+            
+            // Create diff preview with "View More" functionality
+            function createDiffPreview(diff, url) {
+                // Check if the diff is large or if it's likely a minified file
+                const lines = diff.split('\n');
+                const isLongDiff = lines.length > 15;
+                const hasLongLine = lines.some(line => line.length > 500); // Check for minified files
+                const isLarge = isLongDiff || hasLongLine;
+                const isMinified = hasLongLine && lines.length < 10; // Likely a minified file
+                
+                let html = `
+                    <div class="font-medium mb-1 truncate-lines">${url}</div>
+                `;
+                
+                if (isLarge) {
+                    let extraButtons = '';
+                    let formattedCode = '';
+                    
+                    if (isMinified) {
+                        try {
+                            // Try to format JavaScript code for readability
+                            // Simple pretty print logic - replace some common patterns
+                            let prettyCode = diff
+                                .replace(/\{/g, '{\n  ')
+                                .replace(/\}/g, '\n}\n')
+                                .replace(/;/g, ';\n  ')
+                                .replace(/\n\s+\n/g, '\n\n');
+                            
+                            extraButtons = `<button class="btn-format">Format Code</button>`;
+                            formattedCode = `
+                                <div class="formatted-code">
+                                    <pre class="text-xs overflow-x-auto bg-gray-100 p-2 rounded">${prettyCode}</pre>
+                                </div>
+                            `;
+                        } catch (e) {
+                            console.error('Error formatting code:', e);
+                        }
+                    }
+                    
+                    html += `
+                        <div class="diff-preview">
+                            <div class="raw-code">
+                                <pre class="text-xs overflow-x-auto bg-gray-100 p-2 rounded">${diff}</pre>
+                            </div>
+                            ${formattedCode}
+                            <div class="view-more-overlay">
+                                <button class="btn-view-more">View More</button>
+                                ${extraButtons}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    html += `
+                        <pre class="text-xs overflow-x-auto bg-gray-100 p-2 rounded">${diff}</pre>
+                    `;
+                }
+                
+                return html;
+            }
+            
+            // Perform comparison function
+            async function compareUrls() {
+                // Reset UI state
+                loadingIndicator.classList.add('active');
+                resultsContainer.classList.add('hidden');
+                errorMessageContainer.classList.add('hidden');
+                
+                try {
+                    // Get form values
+                    const originalUrl = originalUrlInput.value;
+                    const upgradedUrl = upgradedUrlInput.value;
+                    
+                    if (!originalUrl || !upgradedUrl) {
+                        throw new Error('Please provide both URLs');
+                    }
+                    
+                    console.log('Comparing URLs:', originalUrl, upgradedUrl);
+                    
+                    // Make API request
+                    const response = await fetch('/compare', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ originalUrl, upgradedUrl })
+                    });
+                    
+                    const data = await response.json();
+                    console.log('Received comparison data:', data);
+                    
+                    if (!response.ok) {
+                        throw new Error(data.error || 'Failed to compare pages');
+                    }
+                    
+                    // Update UI with results
+                    const timestamp = new Date().getTime();
+                    
+                    // Prepare images HTML
+                    const imagesHtml = `
+                        <div>
+                            <h3 class="text-sm font-medium text-gray-700 mb-2">Original</h3>
+                            <div id="originalImageContainer">
+                                ${data.originalImageUrl ? 
+                                    `<img class="comparison-image" alt="Original page" src="${data.originalImageUrl}?t=${timestamp}">` : 
+                                    '<div class="text-red-600">Original image not available</div>'}
+                            </div>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-medium text-gray-700 mb-2">Upgraded</h3>
+                            <div id="upgradedImageContainer">
+                                ${data.upgradedImageUrl ? 
+                                    `<img class="comparison-image" alt="Upgraded page" src="${data.upgradedImageUrl}?t=${timestamp}">` : 
+                                    '<div class="text-red-600">Upgraded image not available</div>'}
+                            </div>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-medium text-gray-700 mb-2">Differences</h3>
+                            <div id="diffImageContainer">
+                                ${data.diffImageUrl ? 
+                                    `<img class="comparison-image" alt="Difference highlight" src="${data.diffImageUrl}?t=${timestamp}">` : 
+                                    '<div class="text-red-600">Diff image not available</div>'}
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Update images container
+                    imagesContainer.innerHTML = imagesHtml;
+                    
+                    // Update difference percentage
+                    if (typeof data.misMatchPercentage === 'number') {
+                        diffPercentage.textContent = `${data.misMatchPercentage.toFixed(2)}%`;
+                    } else {
+                        diffPercentage.textContent = 'N/A';
+                    }
+                    
+                    // Display HTML differences
+                    if (data.html && data.html.original && data.html.upgraded) {
+                        try {
+                            // Simple text diff display
+                            const originalLines = data.html.original.split('\n');
+                            const upgradedLines = data.html.upgraded.split('\n');
+                            
+                            let htmlDiffContent = '';
+                            
+                            htmlDiffContent += '<div class="mb-4"><strong>Original HTML:</strong></div>';
+                            originalLines.forEach(line => {
+                                if (line.trim()) {
+                                    htmlDiffContent += `<div class="diff-line removed">- ${line}</div>`;
+                                }
+                            });
+                            
+                            htmlDiffContent += '<div class="my-4"><strong>Upgraded HTML:</strong></div>';
+                            upgradedLines.forEach(line => {
+                                if (line.trim()) {
+                                    htmlDiffContent += `<div class="diff-line added">+ ${line}</div>`;
+                                }
+                            });
+                            
+                            htmlDiff.innerHTML = htmlDiffContent;
+                        } catch (error) {
+                            console.error('Error formatting HTML diff:', error);
+                            htmlDiff.innerHTML = '<div class="text-red-600">Failed to format HTML differences</div>';
+                        }
+                    } else {
+                        htmlDiff.innerHTML = '<div class="text-gray-500">No HTML differences available</div>';
+                    }
+                    
+                    // Display resource differences (minimal implementation)
+                    const cssDiffs = document.getElementById('cssDiffs');
+                    const jsDiffs = document.getElementById('jsDiffs');
+                    const addedImages = document.getElementById('addedImages');
+                    const removedImages = document.getElementById('removedImages');
+                    
+                    // Set default messages
+                    if (cssDiffs) cssDiffs.innerHTML = '<div class="text-gray-500">No CSS differences found</div>';
+                    if (jsDiffs) jsDiffs.innerHTML = '<div class="text-gray-500">No JavaScript differences found</div>';
+                    
+                    // Handle JavaScript differences
+                    if (data.resources && data.resources.javascript && Array.isArray(data.resources.javascript) && data.resources.javascript.length > 0) {
+                        console.log('JavaScript differences:', data.resources.javascript);
+                        const jsDiffsHtml = data.resources.javascript.map(item => `
+                            <div class="resource-item">
+                                ${createDiffPreview(item.diff, item.url)}
+                            </div>
+                        `).join('');
+                        jsDiffs.innerHTML = jsDiffsHtml;
+                    }
+                    
+                    // Handle CSS differences
+                    if (data.resources && data.resources.css && Array.isArray(data.resources.css) && data.resources.css.length > 0) {
+                        console.log('CSS differences:', data.resources.css);
+                        const cssDiffsHtml = data.resources.css.map(item => `
+                            <div class="resource-item">
+                                ${createDiffPreview(item.diff, item.url)}
+                            </div>
+                        `).join('');
+                        cssDiffs.innerHTML = cssDiffsHtml;
+                    }
+                    
+                    // Handle image differences
+                    if (data.resources && data.resources.images) {
+                        // Handle added images
+                        if (addedImages && Array.isArray(data.resources.images.added) && data.resources.images.added.length > 0) {
+                            const addedImagesHtml = data.resources.images.added.map(url => `
+                                <div class="resource-item">
+                                    <a href="${url}" target="_blank" class="text-blue-600 hover:underline">${url}</a>
+                                </div>
+                            `).join('');
+                            addedImages.innerHTML = addedImagesHtml;
+                        } else if (addedImages) {
+                            addedImages.innerHTML = '<div class="text-gray-500">No new images</div>';
+                        }
+                        
+                        // Handle removed images
+                        if (removedImages && Array.isArray(data.resources.images.removed) && data.resources.images.removed.length > 0) {
+                            const removedImagesHtml = data.resources.images.removed.map(url => `
+                                <div class="resource-item">
+                                    <a href="${url}" target="_blank" class="text-blue-600 hover:underline">${url}</a>
+                                </div>
+                            `).join('');
+                            removedImages.innerHTML = removedImagesHtml;
+                        } else if (removedImages) {
+                            removedImages.innerHTML = '<div class="text-gray-500">No removed images</div>';
+                        }
+                    } else {
+                        // Default messages if no image data
+                        if (addedImages) addedImages.innerHTML = '<div class="text-gray-500">No new images</div>';
+                        if (removedImages) removedImages.innerHTML = '<div class="text-gray-500">No removed images</div>';
+                    }
+                    
+                    // Show results
+                    resultsContainer.classList.remove('hidden');
+                    
+                    // Setup "View More" buttons
+                    setupViewMoreButtons();
+                } catch (error) {
+                    console.error('Comparison failed:', error);
+                    showError('An error occurred while comparing pages. Please try again.', error.message);
+                } finally {
+                    loadingIndicator.classList.remove('active');
+                }
+            }
+            
+            // Add event listeners
+            form.addEventListener('submit', function(e) {
             e.preventDefault();
-            await refreshComparison();
+                compareUrls();
+            });
+            
+            refreshButton.addEventListener('click', compareUrls);
         });
     </script>
 </body>
